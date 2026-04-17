@@ -59,7 +59,7 @@ t := jsontransform.New(opts ...Option) *Transformer
 | Option | Description |
 |---|---|
 | `WithRenameFunc(fn RenameFunc)` | Called for every object key. Return `nil` to keep the original name, or `*string` with the new name. |
-| `WithValueTransformer(field string, fn ValueTransformFunc)` | Called for the value of a specific field, matched by its **original** name (before any renaming). |
+| `WithValueTransformer(fn func(string) ValueTransformFunc)` | Called once per unique field name. Return a `ValueTransformFunc` to transform that field's value, or `nil` to leave it unchanged. |
 
 ### Choosing a method
 
@@ -130,7 +130,7 @@ out, _ := t.TransformBytes(User{UserName: "Alice", UserAge: 30})
 
 ### Rename a key and mask its value
 
-`WithValueTransformer` is keyed by the **original** field name. Renaming and value transformation are independent and can be combined freely.
+`WithValueTransformer` receives the **original** field name. Return a transform function for fields you want to handle, or `nil` to leave the value unchanged. Renaming and value transformation are independent and can be combined freely.
 
 ```go
 t := jsontransform.New(
@@ -141,13 +141,41 @@ t := jsontransform.New(
         }
         return nil
     }),
-    jsontransform.WithValueTransformer("pwd", func(v any) any {
-        return "***"
+    jsontransform.WithValueTransformer(func(name string) jsontransform.ValueTransformFunc {
+        if name == "pwd" {
+            return func(v any) any { return "***" }
+        }
+        return nil
     }),
 )
 
 out, _ := t.TransformBytes(map[string]any{"user": "alice", "pwd": "secret"})
 // {"user":"alice","password":"***"}
+```
+
+### Transform values by pattern
+
+Because `WithValueTransformer` gives you the field name, you can match by any pattern rather than a fixed string:
+
+```go
+t := jsontransform.New(
+    jsontransform.WithValueTransformer(func(name string) jsontransform.ValueTransformFunc {
+        if strings.HasSuffix(name, "_at") {
+            return func(v any) any {
+                // reformat Unix timestamp → RFC3339
+                if n, ok := v.(json.Number); ok {
+                    ts, _ := n.Int64()
+                    return time.Unix(ts, 0).UTC().Format(time.RFC3339)
+                }
+                return v
+            }
+        }
+        return nil
+    }),
+)
+
+out, _ := t.TransformBytes(map[string]any{"created_at": 1700000000, "name": "Alice"})
+// {"created_at":"2023-11-14T22:13:20Z","name":"Alice"}
 ```
 
 ### Stream a large JSON file
@@ -173,7 +201,7 @@ t.TransformStream(r, os.Stdout)
 
 ## Notes
 
-- **Field name matching** (both `WithValueTransformer` and `RenameFunc`) always uses the original field name, before any renaming is applied.
+- **Field name matching** (both `WithValueTransformer` and `RenameFunc`) always uses the original field name, before any renaming is applied. The lookup function passed to `WithValueTransformer` is called at most once per unique field name; results are cached for the lifetime of the `Transformer`.
 - **Value transformer input** when processing JSON text (`[]byte`/`string`/`io.Reader`): values arrive as `string`, `json.Number`, `bool`, `nil`, `map[string]any`, or `[]any`. When processing Go values directly, the original Go type is passed.
 - **Value transformer output** is encoded as-is. It is not subject to further renaming or transformation.
 - **Map key order** is non-deterministic, consistent with `encoding/json`.

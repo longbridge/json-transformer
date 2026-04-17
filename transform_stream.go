@@ -58,9 +58,9 @@ func (t *Transformer) transformTokenObject(dec *json.Decoder, sw *streamWriter) 
 		}
 
 		newKey, omit := t.applyRename(originalKey)
-		fn, hasTransformer := t.valueTransformers[originalKey]
+		fn := t.applyValueTransformer(originalKey)
 
-		if omit && !hasTransformer {
+		if omit && fn == nil {
 			if err := skipValue(dec); err != nil {
 				return err
 			}
@@ -74,7 +74,7 @@ func (t *Transformer) transformTokenObject(dec *json.Decoder, sw *streamWriter) 
 
 		sw.writeKey(newKey)
 
-		if hasTransformer {
+		if fn != nil {
 			var goVal any
 			if err := dec.Decode(&goVal); err != nil {
 				return err

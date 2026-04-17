@@ -25,11 +25,12 @@ type renameResult struct {
 // Transformer performs JSON transformation with optional field renaming and value transformation.
 // A Transformer is safe for concurrent use after construction.
 type Transformer struct {
-	renameFunc        RenameFunc
-	valueTransformers map[string]ValueTransformFunc
+	renameFunc       RenameFunc
+	valueTransformer func(string) ValueTransformFunc
 	// renameCache memoises RenameFunc results keyed by original field name.
 	// RenameFunc is assumed to be deterministic (same input → same output).
-	renameCache sync.Map // map[string]renameResult
+	renameCache        sync.Map // map[string]renameResult
+	valueTransformCache sync.Map // map[string]ValueTransformFunc (nil sentinel: no-op)
 }
 
 // Option configures a Transformer.
@@ -42,13 +43,12 @@ func WithRenameFunc(fn RenameFunc) Option {
 	}
 }
 
-// WithValueTransformer registers a transformation function for a specific field name (original name).
-func WithValueTransformer(fieldName string, fn ValueTransformFunc) Option {
+// WithValueTransformer sets a function called once per unique field name to
+// determine whether and how to transform its value.
+// Return nil to leave the value unchanged for that field (fast path, no materialisation).
+func WithValueTransformer(fn func(fieldName string) ValueTransformFunc) Option {
 	return func(t *Transformer) {
-		if t.valueTransformers == nil {
-			t.valueTransformers = make(map[string]ValueTransformFunc)
-		}
-		t.valueTransformers[fieldName] = fn
+		t.valueTransformer = fn
 	}
 }
 
@@ -81,7 +81,7 @@ func (t *Transformer) Transform(src any, dst io.Writer) error {
 	}
 
 	// No-op short-circuit: pass through without any transformation.
-	if t.renameFunc == nil && len(t.valueTransformers) == 0 {
+	if t.renameFunc == nil && t.valueTransformer == nil {
 		switch v := src.(type) {
 		case []byte:
 			_, err := dst.Write(v)
@@ -174,6 +174,27 @@ func (t *Transformer) TransformStream(r io.Reader, w io.Writer) error {
 		}
 	}
 	return nil
+}
+
+// applyValueTransformer returns the ValueTransformFunc for fieldName, with memoisation.
+// Returns nil if no transform is needed for that field.
+func (t *Transformer) applyValueTransformer(fieldName string) ValueTransformFunc {
+	if t.valueTransformer == nil {
+		return nil
+	}
+	if v, ok := t.valueTransformCache.Load(fieldName); ok {
+		if v == nil {
+			return nil
+		}
+		return v.(ValueTransformFunc)
+	}
+	fn := t.valueTransformer(fieldName)
+	if fn == nil {
+		t.valueTransformCache.Store(fieldName, nil)
+	} else {
+		t.valueTransformCache.Store(fieldName, fn)
+	}
+	return fn
 }
 
 // applyRename applies the rename function to a field name, with memoisation.

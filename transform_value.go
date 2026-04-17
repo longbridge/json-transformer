@@ -111,7 +111,7 @@ func (t *Transformer) writeGoMap(m map[string]any, bw *bufWriter) {
 		if omit {
 			continue
 		}
-		if fn, ok := t.valueTransformers[originalKey]; ok {
+		if fn := t.applyValueTransformer(originalKey); fn != nil {
 			val = fn(val)
 		}
 		if !first {
@@ -157,7 +157,7 @@ func (t *Transformer) writeGoReflectMap(rv reflect.Value, bw *bufWriter) {
 			continue
 		}
 		val := rv.MapIndex(key).Interface()
-		if fn, ok := t.valueTransformers[originalKey]; ok {
+		if fn := t.applyValueTransformer(originalKey); fn != nil {
 			val = fn(val)
 		}
 		if !first {
@@ -241,7 +241,7 @@ func (t *Transformer) writeStructFields(rv reflect.Value, bw *bufWriter, first *
 			continue
 		}
 		iface := fieldVal.Interface()
-		if fn, ok := t.valueTransformers[sf.jsonName]; ok {
+		if fn := t.applyValueTransformer(sf.jsonName); fn != nil {
 			iface = fn(iface)
 		}
 		if !*first {

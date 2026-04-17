@@ -160,8 +160,11 @@ func TestValueTransformer_Mask(t *testing.T) {
 			}
 			return nil
 		}),
-		jsontransform.WithValueTransformer("pwd", func(v any) any {
-			return "***"
+		jsontransform.WithValueTransformer(func(name string) jsontransform.ValueTransformFunc {
+			if name == "pwd" {
+				return func(v any) any { return "***" }
+			}
+			return nil
 		}),
 	)
 	got := transform(t, tr, map[string]any{"user": "alice", "pwd": "secret"})
@@ -170,12 +173,17 @@ func TestValueTransformer_Mask(t *testing.T) {
 
 func TestValueTransformer_StreamPath(t *testing.T) {
 	tr := jsontransform.New(
-		jsontransform.WithValueTransformer("score", func(v any) any {
-			if n, ok := v.(json.Number); ok {
-				f, _ := n.Float64()
-				return f * 2
+		jsontransform.WithValueTransformer(func(name string) jsontransform.ValueTransformFunc {
+			if name == "score" {
+				return func(v any) any {
+					if n, ok := v.(json.Number); ok {
+						f, _ := n.Float64()
+						return f * 2
+					}
+					return v
+				}
 			}
-			return v
+			return nil
 		}),
 	)
 	got := transform(t, tr, `{"name":"Alice","score":50}`)

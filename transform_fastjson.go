@@ -56,9 +56,9 @@ func (t *Transformer) walkFJObject(obj *fastjson.Object, sw *streamWriter) {
 		}
 		originalKey := string(keyBytes)
 		newKey, omit := t.applyRename(originalKey)
-		fn, hasTransformer := t.valueTransformers[originalKey]
+		fn := t.applyValueTransformer(originalKey)
 
-		if omit && !hasTransformer {
+		if omit && fn == nil {
 			return
 		}
 
@@ -69,7 +69,7 @@ func (t *Transformer) walkFJObject(obj *fastjson.Object, sw *streamWriter) {
 
 		sw.writeKey(newKey)
 
-		if hasTransformer {
+		if fn != nil {
 			goVal := fjToGoValue(v)
 			goVal = fn(goVal)
 			sw.writeJSONEncoded(goVal)
